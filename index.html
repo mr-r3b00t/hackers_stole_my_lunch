@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CVE-2026-21509 — Detection Engineering Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c10;
+    --surface: #12151c;
+    --surface-raised: #1a1e28;
+    --border: #252a36;
+    --border-bright: #353c4d;
+    --text: #c8cdd8;
+    --text-muted: #6b7280;
+    --text-bright: #e8ecf4;
+    --accent: #e05252;
+    --accent-dim: #e0525220;
+    --accent-glow: #e0525240;
+    --green: #4ade80;
+    --green-dim: #4ade8015;
+    --amber: #f59e0b;
+    --amber-dim: #f59e0b15;
+    --blue: #60a5fa;
+    --blue-dim: #60a5fa15;
+    --purple: #a78bfa;
+    --purple-dim: #a78bfa15;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+    --serif: 'Instrument Serif', serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Noise overlay ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* ── Container ── */
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 32px;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 80px 0 60px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+  }
+
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 120px;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .classification {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background: var(--accent-dim);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 28px;
+    animation: pulse-border 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-border {
+    0%, 100% { border-color: var(--accent); box-shadow: 0 0 0 0 var(--accent-glow); }
+    50% { border-color: #ff6b6b; box-shadow: 0 0 20px 0 var(--accent-glow); }
+  }
+
+  .classification .dot {
+    width: 6px;
+    height: 6px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: blink 1.5s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: 52px;
+    font-weight: 400;
+    color: var(--text-bright);
+    line-height: 1.15;
+    margin-bottom: 20px;
+    letter-spacing: -0.02em;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .subtitle {
+    font-size: 18px;
+    color: var(--text-muted);
+    max-width: 600px;
+  }
+
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-top: 28px;
+  }
+
+  .meta-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .meta-tag .label { color: var(--text); font-weight: 500; }
+
+  /* ── Sections ── */
+  section {
+    padding: 56px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h2 {
+    font-family: var(--serif);
+    font-size: 34px;
+    font-weight: 400;
+    color: var(--text-bright);
+    margin-bottom: 24px;
+    letter-spacing: -0.01em;
+  }
+
+  h3 {
+    font-family: var(--sans);
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-bright);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 36px;
+    margin-bottom: 14px;
+  }
+
+  p { margin-bottom: 16px; }
+
+  /* ── Info Cards ── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+    transition: border-color 0.2s;
+  }
+
+  .card:hover { border-color: var(--border-bright); }
+
+  .card.full { grid-column: 1 / -1; }
+
+  .card .card-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 10px;
+  }
+
+  .card .card-value {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-bright);
+  }
+
+  .card .card-value.critical { color: var(--accent); }
+  .card .card-value.high { color: var(--amber); }
+
+  .card .card-detail {
+    font-size: 14px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    line-height: 1.5;
+  }
+
+  /* ── Attack Flow ── */
+  .attack-flow {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin: 28px 0;
+    overflow-x: auto;
+    padding-bottom: 8px;
+  }
+
+  .flow-step {
+    flex: 1;
+    min-width: 160px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 20px 18px;
+    position: relative;
+  }
+
+  .flow-step:first-child { border-radius: 8px 0 0 8px; }
+  .flow-step:last-child { border-radius: 0 8px 8px 0; }
+
+  .flow-step:not(:last-child)::after {
+    content: '→';
+    position: absolute;
+    right: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 18px;
+    color: var(--accent);
+    z-index: 2;
+    background: var(--bg);
+    width: 16px;
+    text-align: center;
+  }
+
+  .flow-step .step-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  .flow-step .step-title {
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text-bright);
+    margin-bottom: 6px;
+  }
+
+  .flow-step .step-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* ── Code Blocks ── */
+  .code-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 20px 0;
+    overflow: hidden;
+  }
+
+  .code-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 20px;
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .code-header .lang {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .code-header .rule-level {
+    padding: 3px 10px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+  }
+
+  .code-header .rule-level.high {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+
+  .code-header .rule-level.medium {
+    background: var(--amber-dim);
+    color: var(--amber);
+  }
+
+  .code-header .rule-level.info {
+    background: var(--blue-dim);
+    color: var(--blue);
+  }
+
+  .code-header .rule-level.low {
+    background: var(--purple-dim);
+    color: var(--purple);
+  }
+
+  pre {
+    padding: 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+
+  pre .comment { color: #546178; }
+  pre .key { color: var(--blue); }
+  pre .string { color: var(--green); }
+  pre .keyword { color: var(--purple); }
+  pre .accent { color: var(--accent); }
+  pre .number { color: var(--amber); }
+
+  /* ── Indicator Table ── */
+  .indicator-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 24px 0;
+    font-size: 14px;
+  }
+
+  .indicator-table th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    padding: 12px 16px;
+    border-bottom: 2px solid var(--border);
+  }
+
+  .indicator-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .indicator-table tr:hover td {
+    background: var(--surface);
+  }
+
+  .indicator-table code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface-raised);
+    padding: 2px 7px;
+    border-radius: 3px;
+    color: var(--green);
+    white-space: nowrap;
+  }
+
+  /* ── MITRE Badge ── */
+  .mitre-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 16px 0;
+  }
+
+  .mitre-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .mitre-tag .tid { color: var(--amber); font-weight: 700; }
+
+  /* ── Detection Matrix ── */
+  .det-matrix {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+
+  .det-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    border-left: 3px solid var(--border);
+  }
+
+  .det-item.proc { border-left-color: var(--accent); }
+  .det-item.dll { border-left-color: var(--amber); }
+  .det-item.reg { border-left-color: var(--blue); }
+  .det-item.file { border-left-color: var(--green); }
+  .det-item.yara { border-left-color: var(--purple); }
+
+  .det-item .det-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  .det-item.proc .det-label { color: var(--accent); }
+  .det-item.dll .det-label { color: var(--amber); }
+  .det-item.reg .det-label { color: var(--blue); }
+  .det-item.file .det-label { color: var(--green); }
+  .det-item.yara .det-label { color: var(--purple); }
+
+  .det-item .det-title {
+    font-weight: 700;
+    color: var(--text-bright);
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+
+  .det-item .det-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* ── Callout ── */
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--amber);
+    border-radius: 0 8px 8px 0;
+    padding: 20px 24px;
+    margin: 24px 0;
+  }
+
+  .callout .callout-title {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--amber);
+    margin-bottom: 8px;
+  }
+
+  .callout p { margin: 0; font-size: 14px; }
+
+  /* ── Footer ── */
+  footer {
+    padding: 48px 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  footer a { color: var(--text-muted); text-decoration: underline; }
+  footer a:hover { color: var(--text); }
+
+  /* ── TOC ── */
+  nav.toc {
+    padding: 32px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  nav.toc .toc-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+  }
+
+  nav.toc a {
+    display: block;
+    font-size: 15px;
+    color: var(--text);
+    text-decoration: none;
+    padding: 6px 0;
+    transition: color 0.15s;
+  }
+
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc a span.num { color: var(--text-muted); font-family: var(--mono); font-size: 13px; margin-right: 10px; }
+
+  /* ── Responsive ── */
+  @media (max-width: 700px) {
+    h1 { font-size: 34px; }
+    .card-grid, .det-matrix { grid-template-columns: 1fr; }
+    .attack-flow { flex-direction: column; }
+    .flow-step { border-radius: 8px !important; }
+    .flow-step:not(:last-child)::after { content: '↓'; right: 50%; top: auto; bottom: -8px; transform: translateX(50%); }
+    .container { padding: 0 20px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <!-- ═══ HEADER ═══ -->
+  <header>
+    <div class="classification"><span class="dot"></span> Actively Exploited — CISA KEV</div>
+    <h1>CVE-2026-21509<br><em>Detection Engineering Guide</em></h1>
+    <p class="subtitle">Microsoft Office OLE Security Feature Bypass — analysis, indicators, and detection rules for SOC & threat hunting teams.</p>
+    <div class="meta-row">
+      <div class="meta-tag"><span class="label">CVSS</span> 7.8 / High</div>
+      <div class="meta-tag"><span class="label">Vendor</span> Microsoft</div>
+      <div class="meta-tag"><span class="label">Patched</span> 2026-01-26</div>
+      <div class="meta-tag"><span class="label">KEV Deadline</span> 2026-02-16</div>
+    </div>
+  </header>
+
+  <!-- ═══ TOC ═══ -->
+  <nav class="toc">
+    <div class="toc-title">Contents</div>
+    <a href="#overview"><span class="num">01</span> Vulnerability Overview</a>
+    <a href="#attack-flow"><span class="num">02</span> Attack Flow</a>
+    <a href="#indicators"><span class="num">03</span> Key Indicators</a>
+    <a href="#detection-surface"><span class="num">04</span> Detection Surface</a>
+    <a href="#sigma-rules"><span class="num">05</span> Sigma Detection Rules</a>
+    <a href="#yara-rule"><span class="num">06</span> YARA Rule</a>
+    <a href="#kql-rules"><span class="num">07</span> KQL — Defender for Endpoint</a>
+    <a href="#mitre"><span class="num">08</span> MITRE ATT&CK Mapping</a>
+    <a href="#remediation"><span class="num">09</span> Remediation & Mitigations</a>
+  </nav>
+
+  <!-- ═══ OVERVIEW ═══ -->
+  <section id="overview">
+    <h2>Vulnerability Overview</h2>
+    <p>CVE-2026-21509 is a security feature bypass vulnerability in Microsoft Office caused by the application's reliance on untrusted inputs when making security decisions (CWE-807). It allows attackers to bypass Object Linking and Embedding (OLE) mitigations that are designed to prevent dangerous COM/OLE controls from loading inside Office documents.</p>
+    <p>Exploitation requires a victim to open a specially crafted Office document. The Preview Pane is not an attack vector. Despite requiring user interaction, Microsoft has confirmed active exploitation in the wild, and CISA has added it to the Known Exploited Vulnerabilities catalog.</p>
+
+    <div class="card-grid">
+      <div class="card">
+        <div class="card-label">CVSS Score</div>
+        <div class="card-value high">7.8 — High</div>
+        <div class="card-detail">Local attack vector, low complexity, no privileges required, user interaction needed.</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Vulnerability Type</div>
+        <div class="card-value">Security Feature Bypass</div>
+        <div class="card-detail">CWE-807 — Reliance on Untrusted Inputs in a Security Decision</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Exploit Status</div>
+        <div class="card-value critical">Active Exploitation</div>
+        <div class="card-detail">Confirmed in-the-wild exploitation. No public PoC available. Likely targeted campaigns.</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Affected Products</div>
+        <div class="card-value">Office 2016 → 365</div>
+        <div class="card-detail">Office 2016, Office 2019, Office LTSC 2021, Office LTSC 2024, Microsoft 365 Apps for Enterprise.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ ATTACK FLOW ═══ -->
+  <section id="attack-flow">
+    <h2>Attack Flow</h2>
+    <p>The exploit chain requires a malicious Office document containing an embedded OLE object that references the Shell.Explorer.1 COM control (Internet Explorer WebBrowser). When Office processes the document, the embedded object bypasses OLE mitigations and loads the control, which can then execute scripts, load local files, or connect to remote servers.</p>
+
+    <div class="attack-flow">
+      <div class="flow-step">
+        <div class="step-num">STEP 01</div>
+        <div class="step-title">Delivery</div>
+        <div class="step-desc">Attacker sends crafted Office document via email, link, or file share.</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">STEP 02</div>
+        <div class="step-title">User Opens File</div>
+        <div class="step-desc">Victim opens the document. No macro warning or "enable content" prompt appears.</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">STEP 03</div>
+        <div class="step-title">OLE Bypass</div>
+        <div class="step-desc">Office processes embedded OLE object. Shell.Explorer.1 loads despite mitigations.</div>
+      </div>
+      <div class="flow-step">
+        <div class="step-num">STEP 04</div>
+        <div class="step-title">Code Execution</div>
+        <div class="step-desc">Embedded IE WebBrowser control executes scripts, downloads payloads, or connects to C2.</div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">⚠ Key Detail</div>
+      <p>This exploit does <strong>not</strong> require VBA macros. The OLE object triggers on document open through the embedded object rendering pipeline. Standard macro-blocking policies will not prevent this attack.</p>
+    </div>
+  </section>
+
+  <!-- ═══ KEY INDICATORS ═══ -->
+  <section id="indicators">
+    <h2>Key Indicators</h2>
+    <p>The following byte patterns, strings, and identifiers are associated with CVE-2026-21509 exploitation and form the basis of static and dynamic detection rules.</p>
+
+    <table class="indicator-table">
+      <thead>
+        <tr>
+          <th>Indicator</th>
+          <th>Type</th>
+          <th>Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">Shell.Explorer.1 CLSID</td>
+          <td>Binary (LE)</td>
+          <td><code>61 F9 56 88 0A 34 D0 11 A9 6B 00 C0 4F D7 05 A2</code></td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">CLSID (GUID)</td>
+          <td>String</td>
+          <td><code>{8856F961-340A-11D0-A96B-00C04FD705A2}</code></td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">ProgID</td>
+          <td>String</td>
+          <td><code>Shell.Explorer.1</code> / <code>Shell.Explorer.2</code></td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">OLE Magic Bytes</td>
+          <td>Binary</td>
+          <td><code>D0 CF 11 E0 A1 B1 1A E1</code></td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">OOXML Magic</td>
+          <td>Binary</td>
+          <td><code>50 4B 03 04</code> (ZIP/PK header)</td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">OLE Embedding Path</td>
+          <td>String</td>
+          <td><code>word/embeddings/oleObject*.bin</code></td>
+        </tr>
+        <tr>
+          <td style="color:var(--text-bright); font-weight:500;">DLL Loaded</td>
+          <td>Library</td>
+          <td><code>ieframe.dll</code> / <code>mshtml.dll</code> / <code>urlmon.dll</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ═══ DETECTION SURFACE ═══ -->
+  <section id="detection-surface">
+    <h2>Detection Surface</h2>
+    <p>CVE-2026-21509 can be detected across five telemetry layers. Effective detection combines multiple layers to minimize false positives while ensuring coverage.</p>
+
+    <div class="det-matrix">
+      <div class="det-item proc">
+        <div class="det-label">Process Creation</div>
+        <div class="det-title">Office Spawning Suspicious Children</div>
+        <div class="det-desc">Detect WINWORD.EXE, EXCEL.EXE, or POWERPNT.EXE spawning iexplore.exe, cmd.exe, powershell.exe, mshta.exe, rundll32.exe, or wscript.exe.</div>
+      </div>
+      <div class="det-item dll">
+        <div class="det-label">Image / DLL Load</div>
+        <div class="det-title">ieframe.dll Loaded by Office</div>
+        <div class="det-desc">Detect Office processes loading ieframe.dll (hosts WebBrowser control), mshtml.dll, or urlmon.dll — abnormal for standard document editing.</div>
+      </div>
+      <div class="det-item reg">
+        <div class="det-label">Registry Access</div>
+        <div class="det-title">Shell.Explorer CLSID Queries</div>
+        <div class="det-desc">Detect Office processes querying the Shell.Explorer.1 CLSID {8856F961-340A-11D0-A96B-00C04FD705A2} in the COM registry.</div>
+      </div>
+      <div class="det-item file">
+        <div class="det-label">File Events</div>
+        <div class="det-title">Suspicious Document Delivery</div>
+        <div class="det-desc">Track Office documents written to Downloads, Temp, or AppData by browser or email client processes for subsequent YARA scanning.</div>
+      </div>
+      <div class="det-item yara">
+        <div class="det-label">Static Content</div>
+        <div class="det-title">YARA — OLE Object Scanning</div>
+        <div class="det-desc">Scan document contents for Shell.Explorer CLSID bytes, ProgID strings, and OLE/OOXML structural markers.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ SIGMA RULES ═══ -->
+  <section id="sigma-rules">
+    <h2>Sigma Detection Rules</h2>
+
+    <!-- Rule 1 -->
+    <h3>Rule 1 — Process Creation</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Sigma / YAML</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="key">title</span>: <span class="string">Office Spawning IE Components (CVE-2026-21509)</span>
+<span class="key">id</span>: <span class="string">a1b2c3d4-5678-9abc-def0-123456789001</span>
+<span class="key">status</span>: experimental
+<span class="key">description</span>: <span class="string">Detects Office spawning iexplore or loading ieframe.dll via Shell.Explorer.1 OLE abuse</span>
+<span class="key">references</span>:
+  - <span class="string">https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-21509</span>
+  - <span class="string">https://attack.mitre.org/techniques/T1559/001/</span>
+<span class="key">tags</span>:
+  - <span class="string">attack.execution</span>
+  - <span class="string">attack.defense_evasion</span>
+  - <span class="string">attack.t1559.001</span>
+  - <span class="string">cve.2026.21509</span>
+<span class="key">logsource</span>:
+  <span class="key">category</span>: process_creation
+  <span class="key">product</span>: windows
+<span class="key">detection</span>:
+  <span class="key">selection_parent</span>:
+    <span class="key">ParentImage|endswith</span>:
+      - <span class="string">'\WINWORD.EXE'</span>
+      - <span class="string">'\EXCEL.EXE'</span>
+      - <span class="string">'\POWERPNT.EXE'</span>
+  <span class="key">selection_child</span>:
+    - <span class="key">Image|endswith</span>:
+        - <span class="string">'\iexplore.exe'</span>
+        - <span class="string">'\msedge.exe'</span>
+        - <span class="string">'\explorer.exe'</span>
+        - <span class="string">'\cmd.exe'</span>
+        - <span class="string">'\powershell.exe'</span>
+        - <span class="string">'\wscript.exe'</span>
+        - <span class="string">'\cscript.exe'</span>
+        - <span class="string">'\mshta.exe'</span>
+        - <span class="string">'\rundll32.exe'</span>
+    - <span class="key">CommandLine|contains</span>:
+        - <span class="string">'Shell.Explorer'</span>
+        - <span class="string">'8856F961-340A-11D0-A96B-00C04FD705A2'</span>
+  <span class="key">condition</span>: selection_parent <span class="keyword">and</span> selection_child
+<span class="key">falsepositives</span>:
+  - <span class="string">Legacy Office add-ins using embedded browser controls</span>
+<span class="key">level</span>: <span class="accent">high</span></pre>
+    </div>
+
+    <!-- Rule 2 -->
+    <h3>Rule 2 — Image / DLL Load</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Sigma / YAML</span>
+        <span class="rule-level medium">MEDIUM</span>
+      </div>
+<pre><span class="key">title</span>: <span class="string">Office Loading ieframe.dll (Shell.Explorer OLE Indicator)</span>
+<span class="key">id</span>: <span class="string">a1b2c3d4-5678-9abc-def0-123456789002</span>
+<span class="key">status</span>: experimental
+<span class="key">description</span>: <span class="string">Detects Office loading ieframe.dll which hosts the Shell.Explorer.1 WebBrowser control</span>
+<span class="key">logsource</span>:
+  <span class="key">category</span>: image_load
+  <span class="key">product</span>: windows
+<span class="key">detection</span>:
+  <span class="key">selection_process</span>:
+    <span class="key">Image|endswith</span>:
+      - <span class="string">'\WINWORD.EXE'</span>
+      - <span class="string">'\EXCEL.EXE'</span>
+      - <span class="string">'\POWERPNT.EXE'</span>
+  <span class="key">selection_dll</span>:
+    <span class="key">ImageLoaded|endswith</span>:
+      - <span class="string">'\ieframe.dll'</span>
+      - <span class="string">'\mshtml.dll'</span>
+      - <span class="string">'\urlmon.dll'</span>
+  <span class="key">condition</span>: selection_process <span class="keyword">and</span> selection_dll
+<span class="key">falsepositives</span>:
+  - <span class="string">Documents with legitimate embedded web content</span>
+  - <span class="string">Office add-ins using browser controls</span>
+<span class="key">level</span>: <span class="number">medium</span></pre>
+    </div>
+
+    <!-- Rule 3 -->
+    <h3>Rule 3 — Registry Access</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Sigma / YAML</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="key">title</span>: <span class="string">Shell.Explorer.1 COM Registry Access by Office</span>
+<span class="key">id</span>: <span class="string">a1b2c3d4-5678-9abc-def0-123456789003</span>
+<span class="key">status</span>: experimental
+<span class="key">description</span>: <span class="string">Detects Office querying Shell.Explorer.1 CLSID in registry</span>
+<span class="key">logsource</span>:
+  <span class="key">category</span>: registry_access
+  <span class="key">product</span>: windows
+<span class="key">detection</span>:
+  <span class="key">selection_process</span>:
+    <span class="key">Image|endswith</span>:
+      - <span class="string">'\WINWORD.EXE'</span>
+      - <span class="string">'\EXCEL.EXE'</span>
+      - <span class="string">'\POWERPNT.EXE'</span>
+  <span class="key">selection_key</span>:
+    <span class="key">TargetObject|contains</span>:
+      - <span class="string">'{8856F961-340A-11D0-A96B-00C04FD705A2}'</span>
+      - <span class="string">'Shell.Explorer.1'</span>
+      - <span class="string">'Shell.Explorer.2'</span>
+  <span class="key">condition</span>: selection_process <span class="keyword">and</span> selection_key
+<span class="key">falsepositives</span>:
+  - <span class="string">Rare legitimate use</span>
+<span class="key">level</span>: <span class="accent">high</span></pre>
+    </div>
+
+    <!-- Rule 4 -->
+    <h3>Rule 4 — Mitigation Key Monitoring</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Sigma / YAML</span>
+        <span class="rule-level info">INFO</span>
+      </div>
+<pre><span class="key">title</span>: <span class="string">CVE-2026-21509 Mitigation Registry Key Modified</span>
+<span class="key">id</span>: <span class="string">a1b2c3d4-5678-9abc-def0-123456789004</span>
+<span class="key">status</span>: experimental
+<span class="key">description</span>: <span class="string">Monitors for changes to the COM compatibility mitigation key recommended by Microsoft</span>
+<span class="key">logsource</span>:
+  <span class="key">category</span>: registry_set
+  <span class="key">product</span>: windows
+<span class="key">detection</span>:
+  <span class="key">selection</span>:
+    <span class="key">TargetObject|contains</span>:
+      - <span class="string">'SOFTWARE\Microsoft\Internet Explorer\ActiveX Compatibility\{8856F961-340A-11D0-A96B-00C04FD705A2}'</span>
+  <span class="key">condition</span>: selection
+<span class="key">falsepositives</span>:
+  - <span class="string">Admins deploying the mitigation</span>
+<span class="key">level</span>: <span class="number">informational</span></pre>
+    </div>
+
+    <!-- Rule 5 -->
+    <h3>Rule 5 — File Delivery</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Sigma / YAML</span>
+        <span class="rule-level low">LOW</span>
+      </div>
+<pre><span class="key">title</span>: <span class="string">Office Document Delivered via Browser or Email Client</span>
+<span class="key">id</span>: <span class="string">a1b2c3d4-5678-9abc-def0-123456789005</span>
+<span class="key">status</span>: experimental
+<span class="key">description</span>: <span class="string">Tracks Office documents written to user directories by browsers or email — triage with YARA scanning</span>
+<span class="key">logsource</span>:
+  <span class="key">category</span>: file_event
+  <span class="key">product</span>: windows
+<span class="key">detection</span>:
+  <span class="key">selection</span>:
+    <span class="key">TargetFilename|endswith</span>:
+      - <span class="string">'.docm'</span>
+      - <span class="string">'.docx'</span>
+      - <span class="string">'.doc'</span>
+      - <span class="string">'.xlsm'</span>
+      - <span class="string">'.xlsx'</span>
+      - <span class="string">'.pptm'</span>
+      - <span class="string">'.rtf'</span>
+    <span class="key">TargetFilename|contains</span>:
+      - <span class="string">'\Downloads\'</span>
+      - <span class="string">'\Temp\'</span>
+      - <span class="string">'\AppData\'</span>
+  <span class="key">selection_source</span>:
+    <span class="key">Image|endswith</span>:
+      - <span class="string">'\outlook.exe'</span>
+      - <span class="string">'\chrome.exe'</span>
+      - <span class="string">'\msedge.exe'</span>
+      - <span class="string">'\firefox.exe'</span>
+  <span class="key">condition</span>: selection <span class="keyword">and</span> selection_source
+<span class="key">falsepositives</span>:
+  - <span class="string">Normal document downloads</span>
+<span class="key">level</span>: <span class="number">low</span></pre>
+    </div>
+  </section>
+
+  <!-- ═══ YARA ═══ -->
+  <section id="yara-rule">
+    <h2>YARA Rule</h2>
+    <p>Use this rule to scan documents flagged by the Sigma file delivery rule, email gateway, or sandboxing pipeline. Matches Office documents (both legacy OLE and OOXML formats) that contain Shell.Explorer.1 indicators.</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">YARA</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="keyword">rule</span> CVE_2026_21509_OLE_ShellExplorer
+{
+    <span class="key">meta</span>:
+        <span class="key">description</span> = <span class="string">"Detects Shell.Explorer.1 OLE embedding in Office documents"</span>
+        <span class="key">cve</span>         = <span class="string">"CVE-2026-21509"</span>
+        <span class="key">date</span>        = <span class="string">"2026-02-02"</span>
+        <span class="key">reference</span>   = <span class="string">"https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-21509"</span>
+
+    <span class="key">strings</span>:
+        <span class="comment">// Shell.Explorer.1 CLSID in little-endian binary</span>
+        <span class="key">$clsid</span>   = { 61 F9 56 88 0A 34 D0 11 A9 6B 00 C0 4F D7 05 A2 }
+
+        <span class="comment">// ProgID strings (ASCII and Unicode)</span>
+        <span class="key">$progid1</span> = <span class="string">"Shell.Explorer.1"</span> <span class="keyword">ascii wide nocase</span>
+        <span class="key">$progid2</span> = <span class="string">"Shell.Explorer.2"</span> <span class="keyword">ascii wide nocase</span>
+
+        <span class="comment">// File format headers</span>
+        <span class="key">$ole_magic</span> = { D0 CF 11 E0 A1 B1 1A E1 }   <span class="comment">// Legacy OLE</span>
+        <span class="key">$zip_magic</span> = { 50 4B 03 04 }               <span class="comment">// OOXML (ZIP)</span>
+
+        <span class="comment">// OLE embedding markers within OOXML</span>
+        <span class="key">$ole_embed</span> = <span class="string">"oleObject"</span> <span class="keyword">ascii wide nocase</span>
+        <span class="key">$activex</span>   = <span class="string">"activeX"</span> <span class="keyword">ascii wide nocase</span>
+
+    <span class="key">condition</span>:
+        (<span class="key">$ole_magic</span> <span class="keyword">at</span> <span class="number">0</span> <span class="keyword">or</span> <span class="key">$zip_magic</span> <span class="keyword">at</span> <span class="number">0</span>) <span class="keyword">and</span>
+        (<span class="key">$clsid</span> <span class="keyword">or</span> <span class="key">$progid1</span> <span class="keyword">or</span> <span class="key">$progid2</span>) <span class="keyword">and</span>
+        (<span class="key">$ole_embed</span> <span class="keyword">or</span> <span class="key">$activex</span> <span class="keyword">or</span> <span class="key">$ole_magic</span> <span class="keyword">at</span> <span class="number">0</span>)
+}</pre>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">⚠ False Positive Note</div>
+      <p>Some legitimate documents may embed Shell.Explorer controls (e.g., legacy intranet dashboards). Tune by baselining your environment and adding allowlists for known-good document templates. Consider running this rule in alert-only mode before enabling quarantine.</p>
+    </div>
+  </section>
+
+  <!-- ═══ KQL — DEFENDER FOR ENDPOINT ═══ -->
+  <section id="kql-rules">
+    <h2>KQL — Defender for Endpoint</h2>
+    <p>The following KQL queries are designed for Microsoft Defender for Endpoint Advanced Hunting. They cover the same five detection surfaces as the Sigma rules, optimised for the MDE schema.</p>
+
+    <!-- KQL 1 -->
+    <h3>Query 1 — Office Spawning Suspicious Child Processes</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Office spawning suspicious children via OLE abuse</span>
+<span class="comment">// Maps to: Sysmon EID 1, MDE DeviceProcessEvents</span>
+<span class="key">DeviceProcessEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+| <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+    (<span class="string">"WINWORD.EXE"</span>, <span class="string">"EXCEL.EXE"</span>, <span class="string">"POWERPNT.EXE"</span>)
+| <span class="keyword">where</span> <span class="key">FileName</span> <span class="keyword">in~</span>
+    (<span class="string">"iexplore.exe"</span>, <span class="string">"msedge.exe"</span>, <span class="string">"explorer.exe"</span>,
+     <span class="string">"cmd.exe"</span>, <span class="string">"powershell.exe"</span>, <span class="string">"pwsh.exe"</span>,
+     <span class="string">"wscript.exe"</span>, <span class="string">"cscript.exe"</span>, <span class="string">"mshta.exe"</span>,
+     <span class="string">"rundll32.exe"</span>, <span class="string">"regsvr32.exe"</span>, <span class="string">"certutil.exe"</span>)
+    <span class="keyword">or</span> <span class="key">ProcessCommandLine</span> <span class="keyword">has_any</span>
+    (<span class="string">"Shell.Explorer"</span>, <span class="string">"8856F961-340A-11D0-A96B-00C04FD705A2"</span>)
+| <span class="keyword">project</span>
+    <span class="key">Timestamp</span>,
+    <span class="key">DeviceName</span>,
+    <span class="key">InitiatingProcessFileName</span>,
+    <span class="key">InitiatingProcessCommandLine</span>,
+    <span class="key">FileName</span>,
+    <span class="key">ProcessCommandLine</span>,
+    <span class="key">AccountName</span>,
+    <span class="key">FolderPath</span>
+| <span class="keyword">sort by</span> <span class="key">Timestamp</span> <span class="keyword">desc</span></pre>
+    </div>
+
+    <!-- KQL 2 -->
+    <h3>Query 2 — ieframe.dll / mshtml.dll Loaded by Office</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level medium">MEDIUM</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Office loading IE/WebBrowser DLLs (Shell.Explorer.1 hosting)</span>
+<span class="key">DeviceImageLoadEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+| <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+    (<span class="string">"WINWORD.EXE"</span>, <span class="string">"EXCEL.EXE"</span>, <span class="string">"POWERPNT.EXE"</span>)
+| <span class="keyword">where</span> <span class="key">FileName</span> <span class="keyword">in~</span>
+    (<span class="string">"ieframe.dll"</span>, <span class="string">"mshtml.dll"</span>, <span class="string">"urlmon.dll"</span>, <span class="string">"shdocvw.dll"</span>)
+| <span class="keyword">summarize</span>
+    <span class="key">DLLsLoaded</span> = <span class="keyword">make_set</span>(<span class="key">FileName</span>),
+    <span class="key">LoadCount</span> = <span class="keyword">count</span>()
+    <span class="keyword">by</span> <span class="key">DeviceName</span>,
+       <span class="key">InitiatingProcessFileName</span>,
+       <span class="key">InitiatingProcessCommandLine</span>,
+       <span class="key">InitiatingProcessFolderPath</span>
+| <span class="keyword">where</span> <span class="key">LoadCount</span> >= <span class="number">2</span>  <span class="comment">// Multiple IE DLLs = higher confidence</span>
+| <span class="keyword">sort by</span> <span class="key">LoadCount</span> <span class="keyword">desc</span></pre>
+    </div>
+
+    <!-- KQL 3 -->
+    <h3>Query 3 — Shell.Explorer COM Registry Access</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Office querying Shell.Explorer.1 CLSID in registry</span>
+<span class="key">DeviceRegistryEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+| <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+    (<span class="string">"WINWORD.EXE"</span>, <span class="string">"EXCEL.EXE"</span>, <span class="string">"POWERPNT.EXE"</span>)
+| <span class="keyword">where</span> <span class="key">RegistryKey</span> <span class="keyword">has_any</span>
+    (<span class="string">"8856F961-340A-11D0-A96B-00C04FD705A2"</span>,
+     <span class="string">"Shell.Explorer.1"</span>,
+     <span class="string">"Shell.Explorer.2"</span>)
+| <span class="keyword">project</span>
+    <span class="key">Timestamp</span>,
+    <span class="key">DeviceName</span>,
+    <span class="key">InitiatingProcessFileName</span>,
+    <span class="key">InitiatingProcessCommandLine</span>,
+    <span class="key">RegistryKey</span>,
+    <span class="key">RegistryValueName</span>,
+    <span class="key">RegistryValueData</span>,
+    <span class="key">ActionType</span>
+| <span class="keyword">sort by</span> <span class="key">Timestamp</span> <span class="keyword">desc</span></pre>
+    </div>
+
+    <!-- KQL 4 -->
+    <h3>Query 4 — Mitigation Kill Bit Verification</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level info">INFO</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Check which devices have the COM kill bit mitigation applied</span>
+<span class="key">DeviceRegistryEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">30d</span>)
+| <span class="keyword">where</span> <span class="key">RegistryKey</span> <span class="keyword">has</span>
+    <span class="string">"ActiveX Compatibility\\{8856F961-340A-11D0-A96B-00C04FD705A2}"</span>
+| <span class="keyword">where</span> <span class="key">ActionType</span> == <span class="string">"RegistryValueSet"</span>
+| <span class="keyword">summarize</span>
+    <span class="key">LastSeen</span> = <span class="keyword">max</span>(<span class="key">Timestamp</span>),
+    <span class="key">LatestValue</span> = <span class="keyword">arg_max</span>(<span class="key">Timestamp</span>, <span class="key">RegistryValueData</span>)
+    <span class="keyword">by</span> <span class="key">DeviceName</span>
+| <span class="keyword">extend</span> <span class="key">MitigationApplied</span> = <span class="keyword">iff</span>(<span class="key">RegistryValueData</span> <span class="keyword">has</span> <span class="string">"1024"</span>, <span class="string">"Yes"</span>, <span class="string">"Check Manually"</span>)
+<span class="comment">// Cross-reference with your asset inventory to find UNPATCHED devices:</span>
+<span class="comment">// | join kind=rightanti DeviceInfo on DeviceName</span></pre>
+    </div>
+
+    <!-- KQL 5 -->
+    <h3>Query 5 — Office Document Delivery via Email/Browser</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level low">LOW</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Office docs delivered via browser or Outlook to user directories</span>
+<span class="key">DeviceFileEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+| <span class="keyword">where</span> <span class="key">ActionType</span> == <span class="string">"FileCreated"</span>
+| <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+    (<span class="string">"outlook.exe"</span>, <span class="string">"chrome.exe"</span>, <span class="string">"msedge.exe"</span>, <span class="string">"firefox.exe"</span>)
+| <span class="keyword">where</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".docm"</span>
+    <span class="keyword">or</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".docx"</span>
+    <span class="keyword">or</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".doc"</span>
+    <span class="keyword">or</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".xlsm"</span>
+    <span class="keyword">or</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".pptm"</span>
+    <span class="keyword">or</span> <span class="key">FileName</span> <span class="keyword">endswith_cs</span> <span class="string">".rtf"</span>
+| <span class="keyword">where</span> <span class="key">FolderPath</span> <span class="keyword">has_any</span>
+    (<span class="string">"Downloads"</span>, <span class="string">"Temp"</span>, <span class="string">"AppData"</span>)
+| <span class="keyword">project</span>
+    <span class="key">Timestamp</span>,
+    <span class="key">DeviceName</span>,
+    <span class="key">FileName</span>,
+    <span class="key">FolderPath</span>,
+    <span class="key">InitiatingProcessFileName</span>,
+    <span class="key">SHA256</span>,
+    <span class="key">AccountName</span>
+| <span class="keyword">sort by</span> <span class="key">Timestamp</span> <span class="keyword">desc</span></pre>
+    </div>
+
+    <!-- KQL 6 -->
+    <h3>Query 6 — Network Connections from Office After OLE Load</h3>
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">KQL / Advanced Hunting</span>
+        <span class="rule-level high">HIGH</span>
+      </div>
+<pre><span class="comment">// CVE-2026-21509: Outbound network connections from Office processes</span>
+<span class="comment">// Correlates with IE DLL loads — strong indicator of Shell.Explorer C2 activity</span>
+<span class="keyword">let</span> <span class="key">OfficeDLLLoads</span> =
+    <span class="key">DeviceImageLoadEvents</span>
+    | <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+    | <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+        (<span class="string">"WINWORD.EXE"</span>, <span class="string">"EXCEL.EXE"</span>, <span class="string">"POWERPNT.EXE"</span>)
+    | <span class="keyword">where</span> <span class="key">FileName</span> <span class="keyword">in~</span> (<span class="string">"ieframe.dll"</span>, <span class="string">"mshtml.dll"</span>)
+    | <span class="keyword">project</span> <span class="key">DeviceId</span>, <span class="key">InitiatingProcessId</span>, <span class="key">DLLLoadTime</span> = <span class="key">Timestamp</span>;
+<span class="key">DeviceNetworkEvents</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="keyword">ago</span>(<span class="number">7d</span>)
+| <span class="keyword">where</span> <span class="key">InitiatingProcessFileName</span> <span class="keyword">in~</span>
+    (<span class="string">"WINWORD.EXE"</span>, <span class="string">"EXCEL.EXE"</span>, <span class="string">"POWERPNT.EXE"</span>)
+| <span class="keyword">where</span> <span class="key">ActionType</span> == <span class="string">"ConnectionSuccess"</span>
+| <span class="keyword">join</span> <span class="keyword">kind=inner</span> <span class="key">OfficeDLLLoads</span>
+    <span class="keyword">on</span> <span class="key">DeviceId</span>, <span class="key">$left</span>.<span class="key">InitiatingProcessId</span> == <span class="key">$right</span>.<span class="key">InitiatingProcessId</span>
+| <span class="keyword">where</span> <span class="key">Timestamp</span> > <span class="key">DLLLoadTime</span>
+    <span class="keyword">and</span> <span class="key">Timestamp</span> < <span class="keyword">datetime_add</span>(<span class="string">'minute'</span>, <span class="number">5</span>, <span class="key">DLLLoadTime</span>)
+| <span class="keyword">project</span>
+    <span class="key">Timestamp</span>,
+    <span class="key">DeviceName</span>,
+    <span class="key">InitiatingProcessFileName</span>,
+    <span class="key">RemoteUrl</span>,
+    <span class="key">RemoteIP</span>,
+    <span class="key">RemotePort</span>,
+    <span class="key">DLLLoadTime</span>
+| <span class="keyword">sort by</span> <span class="key">Timestamp</span> <span class="keyword">desc</span></pre>
+    </div>
+
+    <div class="callout">
+      <div class="callout-title">⚠ Deployment Notes</div>
+      <p><strong>Query 6</strong> is the highest-fidelity detection — it correlates IE DLL loading with subsequent outbound network connections from the same Office process within a 5-minute window. This pattern is highly anomalous and should be treated as a priority alert. Adjust the time window based on your environment's baseline. All queries use a 7-day lookback by default; extend to 30d for initial threat hunting sweeps.</p>
+    </div>
+  </section>
+
+  <!-- ═══ MITRE ═══ -->
+  <section id="mitre">
+    <h2>MITRE ATT&CK Mapping</h2>
+    <p>The following techniques are relevant to CVE-2026-21509 exploitation. Use these TIDs when mapping detections to your coverage matrix.</p>
+
+    <div class="mitre-tags">
+      <span class="mitre-tag"><span class="tid">T1204.002</span> User Execution: Malicious File</span>
+      <span class="mitre-tag"><span class="tid">T1559.001</span> IPC: Component Object Model</span>
+      <span class="mitre-tag"><span class="tid">T1218</span> System Binary Proxy Execution</span>
+      <span class="mitre-tag"><span class="tid">T1566.001</span> Phishing: Spearphishing Attachment</span>
+      <span class="mitre-tag"><span class="tid">T1221</span> Template Injection</span>
+      <span class="mitre-tag"><span class="tid">T1562.001</span> Impair Defenses: Disable or Modify Tools</span>
+    </div>
+  </section>
+
+  <!-- ═══ REMEDIATION ═══ -->
+  <section id="remediation">
+    <h2>Remediation &amp; Mitigations</h2>
+
+    <h3>Patch</h3>
+    <p>Microsoft released an out-of-band update on January 26, 2026. Office 2021 and later versions receive a service-side change (restart Office to apply). Office 2016 and 2019 users must install the update manually. Ensure all affected installations are patched before the CISA KEV deadline of February 16, 2026.</p>
+
+    <h3>Registry Mitigation</h3>
+    <p>For environments unable to patch immediately, Microsoft provides a registry-based COM compatibility mitigation that blocks the Shell.Explorer.1 control. Apply the kill bit to the CLSID under:</p>
+
+    <div class="code-block">
+      <div class="code-header">
+        <span class="lang">Registry Path</span>
+        <span class="rule-level info">MITIGATION</span>
+      </div>
+<pre>HKLM\SOFTWARE\Microsoft\Internet Explorer\ActiveX Compatibility\{8856F961-340A-11D0-A96B-00C04FD705A2}
+  <span class="key">Compatibility Flags</span> = <span class="number">0x00000400</span> (REG_DWORD)</pre>
+    </div>
+
+    <h3>Operational Recommendations</h3>
+    <p>Block or restrict Office files from untrusted sources, especially those delivered via email. Educate users about the risks of opening unexpected documents. Deploy the YARA and Sigma rules from this guide across your email gateway, endpoint, and SIEM platforms. Use sandbox detonation for high-confidence verdicts before enabling automated quarantine actions.</p>
+  </section>
+
+  <footer>
+    CVE-2026-21509 Detection Guide — Generated 2026-02-02 — References: <a href="https://msrc.microsoft.com/update-guide/vulnerability/CVE-2026-21509">Microsoft Advisory</a> · <a href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog">CISA KEV</a>
+  </footer>
+
+</div>
+
+</body>
+</html>
